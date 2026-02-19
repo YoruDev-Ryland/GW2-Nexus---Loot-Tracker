@@ -25,7 +25,7 @@ FetchContent_MakeAvailable(nexus_api)
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG        v1.91.6
+    GIT_TAG        v1.80
     GIT_SHALLOW    TRUE)
 FetchContent_MakeAvailable(imgui)
 

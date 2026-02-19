@@ -85,6 +85,9 @@ if(MSVC)
         /wd4189     # local variable initialized but not referenced
     )
 
+    # NOMINMAX prevents windows.h from defining min/max macros that clash with std::min/max
+    target_compile_definitions(LootTracker PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+
     # Export GetAddonDef via .def or __declspec(dllexport) — we use the latter
     # in entry.cpp; no .def file needed.
     target_link_options(LootTracker PRIVATE

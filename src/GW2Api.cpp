@@ -306,6 +306,23 @@ std::vector<GW2Api::CurrencyInfo> GW2Api::FetchCurrencyDetails(const std::vector
     return result;
 }
 
+std::vector<GW2Api::CurrencyInfo> GW2Api::FetchAllCurrencies()
+{
+    // /v2/currencies with no IDs returns an array of all currency IDs
+    std::string body = HttpGet(L"/v2/currencies");
+    if (body.empty()) return {};
+
+    try
+    {
+        json j = json::parse(body);
+        std::vector<int> ids;
+        ids.reserve(j.size());
+        for (auto& el : j) ids.push_back(el.get<int>());
+        return FetchCurrencyDetails(ids);
+    }
+    catch (...) { return {}; }
+}
+
 // ── Background polling thread ─────────────────────────────────────────────────
 
 static std::thread             s_PollThread;

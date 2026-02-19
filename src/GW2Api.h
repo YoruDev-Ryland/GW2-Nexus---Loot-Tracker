@@ -76,6 +76,10 @@ namespace GW2Api
     };
     std::vector<CurrencyInfo> FetchCurrencyDetails(const std::vector<int>& ids);
 
+    // Fetch every currency that exists in GW2 (for the profile editor).
+    // Blocking; call from a background thread.
+    std::vector<CurrencyInfo> FetchAllCurrencies();
+
     // Start the background polling thread.
     // onNewSnapshot is called every PollIntervalSec seconds.
     void StartPolling(SnapshotCallback onNewSnapshot);

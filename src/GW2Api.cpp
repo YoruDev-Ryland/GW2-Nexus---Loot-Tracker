@@ -3,7 +3,6 @@
 #include "Shared.h"
 
 #include <nlohmann/json.hpp>
-#define NOMINMAX          // prevent windows.h from defining min/max macros
 #include <windows.h>
 #include <winhttp.h>
 #include <string>

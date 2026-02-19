@@ -117,14 +117,14 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef()
     s_AddonDef.APIVersion  = NEXUS_API_VERSION;
     s_AddonDef.Name        = "Loot Tracker";
     s_AddonDef.Version     = { 1, 0, 0, 0 };
-    s_AddonDef.Author      = "You";
+    s_AddonDef.Author      = "YoruDev-Ryland";
     s_AddonDef.Description = "Tracks items and currency gained per session, "
                              "like Blish HUD Session Tracker.";
     s_AddonDef.Load        = AddonLoad;
     s_AddonDef.Unload      = AddonUnload;
     s_AddonDef.Flags       = AF_None;
     s_AddonDef.Provider    = UP_GitHub;
-    s_AddonDef.UpdateLink  = "https://github.com/YOUR_USERNAME/LootTracker";
+    s_AddonDef.UpdateLink  = "https://github.com/YoruDev-Ryland/GW2-Nexus---Loot-Tracker";
 
     return &s_AddonDef;
 }

@@ -140,7 +140,7 @@ void UI::Render()
                     void* icon = GetTexResource(c.textureId);
                     if (icon)
                     {
-                        ImGui::Image((ImTextureID)(uintptr_t)icon, ImVec2(20, 20));
+                        ImGui::Image((ImTextureID)icon, ImVec2(20, 20));
                         ImGui::SameLine();
                     }
 
@@ -206,7 +206,7 @@ void UI::Render()
                         ImGui::TableSetColumnIndex(0);
                         void* icon = GetTexResource(item.textureId);
                         if (icon)
-                            ImGui::Image((ImTextureID)(uintptr_t)icon, ImVec2(20, 20));
+                            ImGui::Image((ImTextureID)icon, ImVec2(20, 20));
                         else
                         {
                             // Colour placeholder square

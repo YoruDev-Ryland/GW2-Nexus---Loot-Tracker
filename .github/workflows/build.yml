@@ -12,6 +12,8 @@ jobs:
   build:
     name: Build DLL (MSVC / Windows)
     runs-on: windows-latest
+    permissions:
+      contents: write           # needed to create releases on tag builds
 
     steps:
       # ── Checkout ──────────────────────────────────────────────────────────
@@ -40,38 +42,27 @@ jobs:
         run: cmake --build build --config RelWithDebInfo --parallel
         shell: pwsh
 
-      # ── Collect artifact ──────────────────────────────────────────────────
-      - name: Upload DLL artifact
+      # ── Upload DLL artifact (branch / PR builds only, short retention) ────
+      # Skipped on tag builds — the Release step below attaches files directly,
+      # so we never hit artifact storage quota for releases.
+      - name: Upload DLL artifact (branch builds)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
           name: LootTracker-${{ github.sha }}
-          path: |
-            build/LootTracker.dll
-            build/LootTracker.pdb
+          path: build/LootTracker.dll
           if-no-files-found: error
+          retention-days: 3     # short retention keeps storage usage low
 
-  # ── Release job (only runs on version tags) ────────────────────────────────
-  release:
-    name: Create GitHub Release
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: LootTracker-${{ github.sha }}
-          path: dist
-
-      - name: Create Release
+      # ── Create GitHub Release (tag builds only) ───────────────────────────
+      # Files are attached directly here — no artifact storage consumed.
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/LootTracker.dll
-            dist/LootTracker.pdb
+            build/LootTracker.dll
+            build/LootTracker.pdb
           generate_release_notes: true
           draft: false
           prerelease: false

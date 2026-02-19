@@ -3,6 +3,7 @@
 #include "Settings.h"
 #include "Shared.h"
 #include "SessionHistory.h"
+#include "TrackingFilter.h"
 
 #include <unordered_map>
 #include <unordered_set>
@@ -167,6 +168,29 @@ void LootSession::Init()
     // can show the full list immediately, not just wallet currencies.
     std::thread([]()
     {
+        // ── Resolve item IDs saved in profiles that aren't in session history ─
+        // Ensures items added via by-ID show their name/icon after a restart,
+        // even if they've never appeared in a tracked session.
+        std::vector<int> unknownProfileItems;
+        {
+            std::lock_guard<std::mutex> lock(s_Mutex);
+            auto profiles = TrackingFilter::GetProfilesCopy();
+            for (auto& p : profiles)
+                for (int id : p.itemIds)
+                    if (s_ItemInfo.find(id) == s_ItemInfo.end())
+                        unknownProfileItems.push_back(id);
+        }
+        if (!unknownProfileItems.empty())
+        {
+            {
+                std::lock_guard<std::mutex> lock(s_Mutex);
+                for (int id : unknownProfileItems)
+                    s_PendingItemIds.insert(id);
+            }
+            ResolveNewIds();
+        }
+
+        // ── Pre-fetch all currencies ─────────────────────────────────────────
         auto all = GW2Api::FetchAllCurrencies();
         if (all.empty()) return;
 

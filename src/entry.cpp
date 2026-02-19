@@ -45,8 +45,8 @@ static void AddonLoad(AddonAPI_t* aApi)
     // ── Set up ImGui to share the context Nexus is already running ────────────
     ImGui::SetCurrentContext(static_cast<ImGuiContext*>(aApi->ImguiContext));
     ImGui::SetAllocatorFunctions(
-        reinterpret_cast<ImGuiMemAllocFunc>(aApi->ImguiMalloc),
-        reinterpret_cast<ImGuiMemFreeFunc>(aApi->ImguiFree));
+        reinterpret_cast<void*(*)(size_t, void*)>(aApi->ImguiMalloc),
+        reinterpret_cast<void(*)(void*, void*)>(aApi->ImguiFree));
 
     // ── Grab shared Nexus data pointers ───────────────────────────────────────
     MumbleLink  = static_cast<Mumble::LinkedMem*>(

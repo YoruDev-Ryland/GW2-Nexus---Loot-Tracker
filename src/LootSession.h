@@ -83,4 +83,9 @@ namespace LootSession
     void OnSnapshot(GW2Api::Snapshot snap);
 
     void Shutdown();
+
+    // Queue an item ID for name/icon resolution (for items added to a profile
+    // before they have ever been seen in a session). Triggers a poll so names
+    // appear within seconds rather than waiting up to 30 s.
+    void RequestItemResolution(int id);
 }

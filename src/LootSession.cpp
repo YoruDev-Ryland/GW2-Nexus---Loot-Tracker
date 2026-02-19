@@ -498,3 +498,15 @@ std::vector<LootSession::KnownCurrency> LootSession::GetKnownCurrencies()
     }
     return result;
 }
+
+void LootSession::RequestItemResolution(int id)
+{
+    if (id <= 0) return;
+    {
+        std::lock_guard<std::mutex> lock(s_Mutex);
+        if (s_ItemInfo.find(id) != s_ItemInfo.end()) return; // already known
+        s_PendingItemIds.insert(id);
+    }
+    // Wake the poll thread immediately so the name resolves within seconds.
+    GW2Api::PollNow();
+}

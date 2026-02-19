@@ -241,6 +241,71 @@ bool GW2Api::FetchSnapshot(const std::string& apiKey,
         }
     }
 
+    // ── Account bank ─────────────────────────────────────────────────────────
+    // Merging bank prevents items moved from bags to bank showing as losses.
+    {
+        std::string body = HttpGet(L"/v2/account/bank", apiKey);
+        if (!body.empty())
+        {
+            try
+            {
+                std::unordered_map<int, size_t> idx;
+                for (size_t i = 0; i < out.inventory.size(); ++i)
+                    idx[out.inventory[i].id] = i;
+
+                json j = json::parse(body);
+                for (auto& slot : j)
+                {
+                    if (slot.is_null()) continue;
+                    int id    = slot["id"].get<int>();
+                    int count = slot.value("count", 0);
+                    if (count <= 0) continue;
+                    auto it = idx.find(id);
+                    if (it != idx.end())
+                        out.inventory[it->second].count += count;
+                    else
+                    {
+                        idx[id] = out.inventory.size();
+                        out.inventory.push_back({ id, count, -2 }); // slot -2 = bank
+                    }
+                }
+            }
+            catch (...) { /* partial failure ok */ }
+        }
+    }
+
+    // ── Shared inventory slots (gem-store bags) ───────────────────────────────
+    {
+        std::string body = HttpGet(L"/v2/account/inventory", apiKey);
+        if (!body.empty())
+        {
+            try
+            {
+                std::unordered_map<int, size_t> idx;
+                for (size_t i = 0; i < out.inventory.size(); ++i)
+                    idx[out.inventory[i].id] = i;
+
+                json j = json::parse(body);
+                for (auto& slot : j)
+                {
+                    if (slot.is_null()) continue;
+                    int id    = slot["id"].get<int>();
+                    int count = slot.value("count", 0);
+                    if (count <= 0) continue;
+                    auto it = idx.find(id);
+                    if (it != idx.end())
+                        out.inventory[it->second].count += count;
+                    else
+                    {
+                        idx[id] = out.inventory.size();
+                        out.inventory.push_back({ id, count, -3 }); // slot -3 = shared
+                    }
+                }
+            }
+            catch (...) { /* partial failure ok */ }
+        }
+    }
+
     return true;
 }
 

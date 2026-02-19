@@ -758,6 +758,45 @@ void UI::RenderProfileEditor()
         // ── Items tab ─────────────────────────────────────────────────────────
         if (ImGui::BeginTabItem("Items"))
         {
+            // ── Add any item by ID ────────────────────────────────────────────
+            static int  s_AddById    = 0;
+            static bool s_AddByIdErr = false;
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Add by item ID:");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(90.0f);
+            if (ImGui::InputInt("##addById", &s_AddById, 0, 0))
+                s_AddByIdErr = false;
+            ImGui::SameLine();
+            if (ImGui::Button("Add##byId"))
+            {
+                if (s_AddById > 0)
+                {
+                    if (s_WorkingProfile.itemIds.count(s_AddById))
+                        s_AddByIdErr = true;  // already tracked
+                    else
+                    {
+                        s_WorkingProfile.itemIds.insert(s_AddById);
+                        LootSession::RequestItemResolution(s_AddById);
+                        s_AddById    = 0;
+                        s_AddByIdErr = false;
+                    }
+                }
+            }
+            if (s_AddByIdErr)
+            {
+                ImGui::SameLine();
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.5f, 0.3f, 1.0f));
+                ImGui::TextUnformatted("Already tracked.");
+                ImGui::PopStyleColor();
+            }
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+            ImGui::TextUnformatted("(gw2efficiency.com/items or wiki)");
+            ImGui::PopStyleColor();
+            ImGui::Separator();
+
+            // ── Search ────────────────────────────────────────────────────────
             static char s_PESearch[64] = {};
             ImGui::SetNextItemWidth(-1.0f);
             ImGui::InputText("Search##PESearch", s_PESearch, sizeof(s_PESearch));

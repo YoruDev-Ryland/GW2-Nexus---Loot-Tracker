@@ -26,9 +26,12 @@ namespace GW2Api
     {
         int         id;
         std::string name;
-        std::string rarity;   // "Junk", "Basic", "Fine", "Masterwork", ...
-        std::string iconUrl;  // full URL to render.guildwars2.com icon
+        std::string rarity;       // "Junk", "Basic", "Fine", "Masterwork", ...
+        std::string iconUrl;      // full URL to render.guildwars2.com icon
         std::string chatLink;
+        std::string description;  // optional lore/flavour text
+        std::string type;         // "Weapon", "Armor", "Consumable", etc.
+        int         vendorValue = 0; // copper coins vendor price
     };
 
     struct Snapshot

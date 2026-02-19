@@ -2,11 +2,13 @@
 #include "GW2Api.h"
 #include "Settings.h"
 #include "Shared.h"
+#include "SessionHistory.h"
 
 #include <unordered_map>
 #include <unordered_set>
 #include <mutex>
 #include <chrono>
+#include <ctime>
 #include <algorithm>
 
 using Clock   = std::chrono::steady_clock;
@@ -20,10 +22,20 @@ static bool  s_Active    = false;
 static bool  s_HasBase   = false; // true once the first snapshot has been received
 
 static Clock::time_point s_StartTime;
+static std::chrono::system_clock::time_point s_StartWallTime;
+
+// Auto-start tracking
+static uint32_t s_LastMapId    = 0;
+static int      s_LastAutoHour = -1;
+static int      s_LastAutoDay  = -1;
 
 // Baseline snapshots (taken on session start).
 static std::unordered_map<int, int64_t> s_BaseWallet;  // currency id -> value
 static std::unordered_map<int, int>     s_BaseItems;   // item id     -> count
+
+// Set to true by Start() so the very next snapshot is recorded as the new
+// baseline rather than diffed against the old one.
+static bool s_NeedsNewBase = false;
 
 // Accumulated deltas since the session started.
 static std::unordered_map<int, int64_t> s_DeltaWallet;
@@ -113,6 +125,7 @@ void LootSession::Init()
     // Wire the polling thread callback.
     GW2Api::StartPolling([](GW2Api::Snapshot snap)
     {
+        LootSession::CheckAutoStart();
         LootSession::OnSnapshot(std::move(snap));
     });
 }
@@ -122,16 +135,41 @@ void LootSession::Start()
     std::lock_guard<std::mutex> lock(s_Mutex);
     s_DeltaWallet.clear();
     s_DeltaItems.clear();
-    s_Active    = s_HasBase; // can't start until first snapshot arrived
-    s_StartTime = Clock::now();
+    // Mark that the next snapshot should become the new baseline rather than
+    // being diffed against potentially stale data.  s_Active = true immediately
+    // so the UI shows the Stop button and the timer starts.
+    s_Active       = true;
+    s_NeedsNewBase = true;
+    s_StartTime     = Clock::now();
+    s_StartWallTime = std::chrono::system_clock::now();
     if (APIDefs)
-        APIDefs->Log(LOGL_INFO, "LootTracker", "Session started.");
+        APIDefs->Log(LOGL_INFO, "LootTracker", "Session started — waiting for baseline snapshot.");
 }
 
 void LootSession::Stop()
 {
-    std::lock_guard<std::mutex> lock(s_Mutex);
-    s_Active = false;
+    bool wasActive = false;
+    std::chrono::system_clock::time_point wallStart;
+
+    {
+        std::lock_guard<std::mutex> lock(s_Mutex);
+        wasActive = s_Active;
+        wallStart = s_StartWallTime;
+        s_Active  = false;
+    }
+
+    if (wasActive)
+    {
+        // GetItemDeltas/GetCurrencyDeltas re-acquire the mutex internally,
+        // so they must be called OUTSIDE the lock block above.
+        auto items      = GetItemDeltas();
+        auto currencies = GetCurrencyDeltas();
+        SessionHistory::SaveSession(wallStart,
+                                    std::chrono::system_clock::now(),
+                                    std::move(items),
+                                    std::move(currencies));
+    }
+
     if (APIDefs)
         APIDefs->Log(LOGL_INFO, "LootTracker", "Session stopped.");
 }
@@ -153,14 +191,18 @@ void LootSession::OnSnapshot(GW2Api::Snapshot snap)
         for (auto& item : snap.inventory)
             newItems[item.id] += item.count;
 
-        if (!s_HasBase)
+        if (!s_HasBase || s_NeedsNewBase)
         {
-            // First ever snapshot — record as baseline, don't accumulate.
-            s_BaseWallet = newWallet;
-            s_BaseItems  = newItems;
-            s_HasBase    = true;
+            // Snapshot is a fresh baseline (first ever, or user clicked Start/Reset).
+            s_BaseWallet   = newWallet;
+            s_BaseItems    = newItems;
+            s_HasBase      = true;
+            s_NeedsNewBase = false;
+            // Don't force s_Active here — on the very first ever snapshot we
+            // just prime the baseline.  When the user clicks Start, s_Active is
+            // already true by the time the baseline snapshot arrives.
 
-            // Queue all currencies for info fetch on first run
+            // Queue all currencies for info fetch
             for (auto& [id, _] : newWallet)
                 if (s_CurrencyInfo.find(id) == s_CurrencyInfo.end())
                     s_PendingCurrencyIds.insert(id);
@@ -216,8 +258,9 @@ void LootSession::Shutdown()
 {
     GW2Api::StopPolling();
     std::lock_guard<std::mutex> lock(s_Mutex);
-    s_Active  = false;
-    s_HasBase = false;
+    s_Active       = false;
+    s_HasBase      = false;
+    s_NeedsNewBase = false;
     s_DeltaWallet.clear();
     s_DeltaItems.clear();
 }
@@ -226,6 +269,66 @@ bool LootSession::IsActive()
 {
     std::lock_guard<std::mutex> lock(s_Mutex);
     return s_Active;
+}
+
+// ── Auto-start ────────────────────────────────────────────────────────────────
+
+void LootSession::CheckAutoStart()
+{
+    if (g_Settings.AutoStart == AutoStartMode::Disabled) return;
+
+    // Determine current UTC time
+    auto nowRaw = std::chrono::system_clock::now();
+    std::time_t tnow = std::chrono::system_clock::to_time_t(nowRaw);
+    std::tm utc{};
+    gmtime_s(&utc, &tnow);
+    int currentHour = utc.tm_hour;
+    int currentDay  = utc.tm_yday;
+
+    // Current in-game map ID (0 = character select / not loaded yet)
+    uint32_t currentMapId = 0;
+    if (MumbleLink) currentMapId = MumbleLink->Context.MapId;
+
+    bool shouldStart = false;
+
+    switch (g_Settings.AutoStart)
+    {
+    case AutoStartMode::OnLogin:
+        // Trigger when transitioning from map 0 (loading / char select) → in a map
+        if (s_LastMapId == 0 && currentMapId != 0)
+            shouldStart = true;
+        break;
+
+    case AutoStartMode::Hourly:
+        if (s_LastAutoHour < 0)
+            s_LastAutoHour = currentHour; // first-time initialise — don't fire yet
+        else if (currentHour != s_LastAutoHour)
+            shouldStart = true;
+        break;
+
+    case AutoStartMode::Daily:
+        if (s_LastAutoDay < 0)
+            s_LastAutoDay = currentDay; // first-time initialise — don't fire yet
+        else if (currentDay != s_LastAutoDay)
+            shouldStart = true;
+        break;
+
+    default:
+        break;
+    }
+
+    s_LastMapId = currentMapId;
+
+    if (shouldStart)
+    {
+        s_LastAutoHour = currentHour;
+        s_LastAutoDay  = currentDay;
+        // Stop() saves the current session to history; Start() primes a new baseline.
+        Stop();
+        Start();
+        if (APIDefs)
+            APIDefs->Log(LOGL_INFO, "LootTracker", "Auto-start: new session begun.");
+    }
 }
 
 std::chrono::seconds LootSession::ElapsedTime()
@@ -250,9 +353,12 @@ std::vector<LootSession::ItemDelta> LootSession::GetItemDeltas()
         auto it = s_ItemInfo.find(id);
         if (it != s_ItemInfo.end())
         {
-            d.name     = it->second.name;
-            d.rarity   = it->second.rarity;
-            d.chatLink = it->second.chatLink;
+            d.name        = it->second.name;
+            d.rarity      = it->second.rarity;
+            d.chatLink    = it->second.chatLink;
+            d.description = it->second.description;
+            d.type        = it->second.type;
+            d.vendorValue = it->second.vendorValue;
         }
         else
         {

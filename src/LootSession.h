@@ -14,12 +14,15 @@ namespace LootSession
     {
         int         id;
         std::string name;
-        std::string rarity;   // "Fine", "Rare", "Exotic", etc.
+        std::string rarity;       // "Fine", "Rare", "Exotic", etc.
         std::string chatLink;
-        int         delta;    // positive = gained, negative = lost
+        int         delta;        // positive = gained, negative = lost
         // Texture identifier registered with Nexus Texture API.
         // Empty until the icon has been loaded asynchronously.
         std::string textureId;
+        std::string description;  // optional flavour/lore text
+        std::string type;         // item type, e.g. "Weapon", "Armor"
+        int         vendorValue = 0; // copper coins
     };
 
     struct CurrencyDelta
@@ -52,6 +55,10 @@ namespace LootSession
 
     // Pause accumulation (polling keeps running so baseline stays warm).
     void Stop();
+
+    // Check auto-start conditions and start a new session if triggered.
+    // Called from the polling thread each poll cycle.
+    void CheckAutoStart();
 
     // Called internally by GW2Api polling thread with a fresh snapshot.
     void OnSnapshot(GW2Api::Snapshot snap);

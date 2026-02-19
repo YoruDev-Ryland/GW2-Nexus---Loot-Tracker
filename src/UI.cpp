@@ -4,11 +4,13 @@
 #include "GW2Api.h"
 #include "Shared.h"
 #include "SessionHistory.h"
+#include "TrackingFilter.h"
 
 #include <imgui.h>
 #include <string>
 #include <sstream>
 #include <algorithm>
+#include <cctype>
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -68,6 +70,13 @@ static void* GetTexResource(const std::string& texId)
 // ── Main window ───────────────────────────────────────────────────────────────
 
 static bool s_ShowHistory = false;
+
+// ── Profile editor state ───────────────────────────────────────────────────────
+static bool            s_ShowProfileEditor = false;
+static int             s_EditingProfileIdx = -1;   // -1 = creating new
+static TrackingProfile s_WorkingProfile;
+static char            s_ProfileNameBuf[64] = {};
+
 void UI::Render()
 {
     if (!g_Settings.ShowWindow) return;
@@ -115,6 +124,64 @@ void UI::Render()
 
     ImGui::Separator();
 
+    // ── Profile bar ───────────────────────────────────────────────────────────
+    {
+        auto profiles  = TrackingFilter::GetProfilesCopy();
+        int  activeIdx = TrackingFilter::GetActiveProfileIndex();
+        const char* activeLabel = (activeIdx < 0 || activeIdx >= (int)profiles.size())
+            ? "All" : profiles[activeIdx].name.c_str();
+
+        ImGui::TextUnformatted("Profile:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(145.0f);
+        if (ImGui::BeginCombo("##LTProfSel", activeLabel))
+        {
+            if (ImGui::Selectable("All##LTProfAll", activeIdx < 0))
+            { TrackingFilter::SetActiveProfile(-1); TrackingFilter::Save(); }
+            if (activeIdx < 0) ImGui::SetItemDefaultFocus();
+
+            for (int i = 0; i < (int)profiles.size(); i++)
+            {
+                bool sel = (i == activeIdx);
+                if (ImGui::Selectable(profiles[i].name.c_str(), sel))
+                { TrackingFilter::SetActiveProfile(i); TrackingFilter::Save(); }
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        ImGui::SameLine();
+        if (ImGui::SmallButton("+"))
+        {
+            s_WorkingProfile    = {};
+            s_EditingProfileIdx = -1;
+            memset(s_ProfileNameBuf, 0, sizeof(s_ProfileNameBuf));
+            snprintf(s_ProfileNameBuf, sizeof(s_ProfileNameBuf), "New Profile");
+            s_ShowProfileEditor = true;
+        }
+        if (ImGui::IsItemHovered())
+        { ImGui::BeginTooltip(); ImGui::TextUnformatted("New profile"); ImGui::EndTooltip(); }
+
+        if (activeIdx >= 0 && activeIdx < (int)profiles.size())
+        {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Edit"))
+            {
+                s_WorkingProfile    = profiles[activeIdx];
+                s_EditingProfileIdx = activeIdx;
+                strncpy_s(s_ProfileNameBuf, sizeof(s_ProfileNameBuf),
+                    s_WorkingProfile.name.c_str(), _TRUNCATE);
+                s_ShowProfileEditor = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Del"))
+            { TrackingFilter::DeleteProfile(activeIdx); TrackingFilter::Save(); }
+            if (ImGui::IsItemHovered())
+            { ImGui::BeginTooltip(); ImGui::TextUnformatted("Delete this profile"); ImGui::EndTooltip(); }
+        }
+    }
+    ImGui::Separator();
+
     // ── API key warning ───────────────────────────────────────────────────────
     if (g_Settings.ApiKey.empty())
     {
@@ -140,6 +207,8 @@ void UI::Render()
                 // Special handling for coin (id == 1) — display as gold breakdown
                 for (auto& c : currencies)
                 {
+                    if (!TrackingFilter::IsCurrencyTracked(c.id)) continue;
+
                     void* icon = GetTexResource(c.textureId);
                     if (icon)
                     {
@@ -151,22 +220,63 @@ void UI::Render()
                         ? ImVec4(0.4f, 1.0f, 0.4f, 1.0f)  // green
                         : ImVec4(1.0f, 0.4f, 0.4f, 1.0f); // red
 
-                    ImGui::PushStyleColor(ImGuiCol_Text, col);
-
-                    if (c.id == 1) // Gold coins
-                    {
-                        std::string sign = c.delta >= 0 ? "+" : "";
-                        ImGui::Text("%s%s  %s",
-                            sign.c_str(),
-                            FormatGold(c.delta).c_str(),
-                            c.name.c_str());
-                    }
+                    // Selectable (instead of Text) so right-click popup attaches cleanly
+                    std::string dispText;
+                    if (c.id == 1)
+                        dispText = (c.delta >= 0 ? "+" : "") + FormatGold(c.delta) + "  " + c.name;
                     else
                     {
-                        ImGui::Text("%+lld  %s", (long long)c.delta, c.name.c_str());
+                        char buf[128];
+                        snprintf(buf, sizeof(buf), "%+lld  %s", (long long)c.delta, c.name.c_str());
+                        dispText = buf;
                     }
-
+                    std::string curSel = dispText + "##cur" + std::to_string(c.id);
+                    ImGui::PushStyleColor(ImGuiCol_Text, col);
+                    ImGui::Selectable(curSel.c_str(), false, 0, ImVec2(0, 22));
                     ImGui::PopStyleColor();
+
+                    // Right-click: add / remove from profile
+                    char curCtxId[32];
+                    snprintf(curCtxId, sizeof(curCtxId), "LTCurRC%d", c.id);
+                    if (ImGui::BeginPopupContextItem(curCtxId))
+                    {
+                        auto profiles  = TrackingFilter::GetProfilesCopy();
+                        int  activeIdx = TrackingFilter::GetActiveProfileIndex();
+                        ImGui::TextDisabled("%s", c.name.c_str());
+                        ImGui::Separator();
+                        if (!profiles.empty())
+                        {
+                            if (ImGui::BeginMenu("Add to profile"))
+                            {
+                                for (int pi = 0; pi < (int)profiles.size(); pi++)
+                                {
+                                    bool already = profiles[pi].currencyIds.count(c.id) > 0;
+                                    if (ImGui::MenuItem(profiles[pi].name.c_str(), nullptr, already))
+                                    {
+                                        auto p = profiles[pi];
+                                        if (already) p.currencyIds.erase(c.id);
+                                        else         p.currencyIds.insert(c.id);
+                                        TrackingFilter::UpdateProfile(pi, p);
+                                        TrackingFilter::Save();
+                                    }
+                                }
+                                ImGui::EndMenu();
+                            }
+                        }
+                        else
+                        {
+                            if (ImGui::MenuItem("Create first profile to track..."))
+                            {
+                                s_WorkingProfile = {};
+                                s_WorkingProfile.currencyIds.insert(c.id);
+                                s_EditingProfileIdx = -1;
+                                memset(s_ProfileNameBuf, 0, sizeof(s_ProfileNameBuf));
+                                snprintf(s_ProfileNameBuf, sizeof(s_ProfileNameBuf), "New Profile");
+                                s_ShowProfileEditor = true;
+                            }
+                        }
+                        ImGui::EndPopup();
+                    }
                 }
             }
         }
@@ -202,6 +312,8 @@ void UI::Render()
                     {
                         if (!g_Settings.ShowZeroDeltas && item.delta == 0)
                             continue;
+                        if (!TrackingFilter::IsItemTracked(item.id))
+                            continue;
 
                         ImGui::TableNextRow();
 
@@ -230,19 +342,19 @@ void UI::Render()
                         ImGui::Text("%+d", item.delta);
                         ImGui::PopStyleColor();
 
-                        // Name column — coloured by rarity
+                        // Name column — coloured by rarity, Selectable for right-click
                         ImGui::TableSetColumnIndex(2);
                         ImU32 rarityCol = RarityColor(item.rarity);
                         ImGui::PushStyleColor(ImGuiCol_Text,
                             ImGui::ColorConvertU32ToFloat4(rarityCol));
-                        ImGui::TextUnformatted(item.name.c_str());
+                        std::string itmSel = item.name + "##itm" + std::to_string(item.id);
+                        ImGui::Selectable(itmSel.c_str(), false, 0, ImVec2(0, 20));
                         ImGui::PopStyleColor();
 
-                        // Tooltip with item details
+                        // Tooltip with item details (hover over name)
                         if (ImGui::IsItemHovered())
                         {
                             ImGui::BeginTooltip();
-                            // Type + rarity header
                             if (!item.type.empty() || !item.rarity.empty())
                             {
                                 std::string hdr;
@@ -251,20 +363,61 @@ void UI::Render()
                                 if (!item.type.empty())   hdr += item.type;
                                 ImGui::TextDisabled("%s", hdr.c_str());
                             }
-                            // Description
                             if (!item.description.empty())
                             {
                                 ImGui::PushTextWrapPos(ImGui::GetFontSize() * 16.0f);
                                 ImGui::TextUnformatted(item.description.c_str());
                                 ImGui::PopTextWrapPos();
                             }
-                            // Vendor value
                             if (item.vendorValue > 0)
                             {
                                 ImGui::Separator();
                                 ImGui::Text("Vendor: %s", FormatGold(item.vendorValue).c_str());
                             }
                             ImGui::EndTooltip();
+                        }
+
+                        // Right-click: add / remove from profile
+                        char itmCtxId[32];
+                        snprintf(itmCtxId, sizeof(itmCtxId), "LTItmRC%d", item.id);
+                        if (ImGui::BeginPopupContextItem(itmCtxId))
+                        {
+                            auto profiles  = TrackingFilter::GetProfilesCopy();
+                            int  activeIdx = TrackingFilter::GetActiveProfileIndex();
+                            ImGui::TextDisabled("%s", item.name.c_str());
+                            ImGui::Separator();
+                            if (!profiles.empty())
+                            {
+                                if (ImGui::BeginMenu("Add to profile"))
+                                {
+                                    for (int pi = 0; pi < (int)profiles.size(); pi++)
+                                    {
+                                        bool already = profiles[pi].itemIds.count(item.id) > 0;
+                                        if (ImGui::MenuItem(profiles[pi].name.c_str(), nullptr, already))
+                                        {
+                                            auto p = profiles[pi];
+                                            if (already) p.itemIds.erase(item.id);
+                                            else         p.itemIds.insert(item.id);
+                                            TrackingFilter::UpdateProfile(pi, p);
+                                            TrackingFilter::Save();
+                                        }
+                                    }
+                                    ImGui::EndMenu();
+                                }
+                            }
+                            else
+                            {
+                                if (ImGui::MenuItem("Create first profile to track..."))
+                                {
+                                    s_WorkingProfile = {};
+                                    s_WorkingProfile.itemIds.insert(item.id);
+                                    s_EditingProfileIdx = -1;
+                                    memset(s_ProfileNameBuf, 0, sizeof(s_ProfileNameBuf));
+                                    snprintf(s_ProfileNameBuf, sizeof(s_ProfileNameBuf), "New Profile");
+                                    s_ShowProfileEditor = true;
+                                }
+                            }
+                            ImGui::EndPopup();
                         }
                     }
                     ImGui::EndTable();
@@ -451,6 +604,178 @@ void UI::RenderHistory()
             }
         }
     }
+
+    ImGui::End();
+}
+
+// ── Profile Editor window ─────────────────────────────────────────────────────
+
+void UI::RenderProfileEditor()
+{
+    if (!s_ShowProfileEditor) return;
+
+    ImGui::SetNextWindowSize(ImVec2(400, 520), ImGuiCond_FirstUseEver);
+    bool open = s_ShowProfileEditor;
+    if (!ImGui::Begin("Profile Editor##LT_PE", &open, ImGuiWindowFlags_NoCollapse))
+    {
+        ImGui::End();
+        s_ShowProfileEditor = open;
+        return;
+    }
+    s_ShowProfileEditor = open;
+
+    // Profile name
+    ImGui::TextUnformatted("Profile Name:");
+    ImGui::SetNextItemWidth(-1.0f);
+    ImGui::InputText("##PEName", s_ProfileNameBuf, sizeof(s_ProfileNameBuf));
+    ImGui::Spacing();
+
+    // Content area — leave room for Save/Cancel buttons at bottom
+    ImGui::BeginChild("##PEContent", ImVec2(0, -52), false);
+
+    if (ImGui::BeginTabBar("##PETabs"))
+    {
+        // ── Currencies tab ────────────────────────────────────────────────────
+        if (ImGui::BeginTabItem("Currencies"))
+        {
+            ImGui::TextDisabled("Click a currency to toggle tracking in this profile.");
+            ImGui::Spacing();
+
+            auto curs = LootSession::GetKnownCurrencies();
+            if (curs.empty())
+                ImGui::TextDisabled("No currencies seen yet — a poll will populate this list.");
+
+            std::sort(curs.begin(), curs.end(),
+                [](const LootSession::KnownCurrency& a, const LootSession::KnownCurrency& b)
+                { return a.name < b.name; });
+
+            for (auto& c : curs)
+            {
+                bool tracked = s_WorkingProfile.currencyIds.count(c.id) > 0;
+
+                void* icon = GetTexResource(c.textureId);
+                if (icon) { ImGui::Image((ImTextureID)icon, ImVec2(20, 20)); ImGui::SameLine(); }
+
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                    tracked ? ImVec4(0.4f, 1.0f, 0.4f, 1.0f) : ImVec4(1, 1, 1, 0.9f));
+                std::string selLabel = c.name + "##ce_" + std::to_string(c.id);
+                if (ImGui::Selectable(selLabel.c_str(), tracked, 0, ImVec2(0, 22)))
+                {
+                    if (tracked) s_WorkingProfile.currencyIds.erase(c.id);
+                    else         s_WorkingProfile.currencyIds.insert(c.id);
+                }
+                ImGui::PopStyleColor();
+            }
+            ImGui::EndTabItem();
+        }
+
+        // ── Items tab ─────────────────────────────────────────────────────────
+        if (ImGui::BeginTabItem("Items"))
+        {
+            static char s_PESearch[64] = {};
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputText("Search##PESearch", s_PESearch, sizeof(s_PESearch));
+            ImGui::TextDisabled("Click an item to toggle tracking in this profile.");
+            ImGui::Spacing();
+
+            auto items = LootSession::GetKnownItems();
+            if (items.empty())
+                ImGui::TextDisabled("No items seen yet — play a session to populate this list.");
+
+            std::sort(items.begin(), items.end(),
+                [](const LootSession::KnownItem& a, const LootSession::KnownItem& b)
+                { return a.type == b.type ? a.name < b.name : a.type < b.type; });
+
+            // Build lower-case search string
+            std::string searchLow = s_PESearch;
+            for (auto& ch : searchLow) ch = (char)std::tolower((unsigned char)ch);
+
+            std::string lastType;
+            for (auto& item : items)
+            {
+                // Search filter
+                if (!searchLow.empty())
+                {
+                    std::string nl = item.name;
+                    for (auto& ch : nl) ch = (char)std::tolower((unsigned char)ch);
+                    if (nl.find(searchLow) == std::string::npos) continue;
+                }
+
+                // Category header
+                if (item.type != lastType)
+                {
+                    lastType = item.type;
+                    ImGui::Spacing();
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
+                    ImGui::TextUnformatted(lastType.empty() ? "Unknown" : lastType.c_str());
+                    ImGui::PopStyleColor();
+                    ImGui::Separator();
+                }
+
+                bool tracked = s_WorkingProfile.itemIds.count(item.id) > 0;
+
+                // Icon or coloured rarity square
+                void* icon = GetTexResource(item.textureId);
+                if (icon) { ImGui::Image((ImTextureID)icon, ImVec2(20, 20)); ImGui::SameLine(); }
+                else
+                {
+                    ImU32 rc = RarityColor(item.rarity);
+                    ImGui::ColorButton("##pe_sq",
+                        ImGui::ColorConvertU32ToFloat4(rc),
+                        ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoBorder,
+                        ImVec2(20, 20));
+                    ImGui::SameLine();
+                }
+
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                    tracked ? ImVec4(0.4f, 1.0f, 0.4f, 1.0f) : ImVec4(1, 1, 1, 0.9f));
+                std::string selLabel = item.name + "##ie_" + std::to_string(item.id);
+                if (ImGui::Selectable(selLabel.c_str(), tracked, 0, ImVec2(0, 22)))
+                {
+                    if (tracked) s_WorkingProfile.itemIds.erase(item.id);
+                    else         s_WorkingProfile.itemIds.insert(item.id);
+                }
+                ImGui::PopStyleColor();
+            }
+            ImGui::EndTabItem();
+        }
+
+        ImGui::EndTabBar();
+    }
+
+    ImGui::EndChild(); // ##PEContent
+
+    // ── Buttons ───────────────────────────────────────────────────────────────
+    ImGui::Separator();
+
+    if (ImGui::Button("Save"))
+    {
+        s_WorkingProfile.name = s_ProfileNameBuf;
+        if (s_EditingProfileIdx >= 0)
+            TrackingFilter::UpdateProfile(s_EditingProfileIdx, s_WorkingProfile);
+        else
+        {
+            int idx = TrackingFilter::NewProfile(s_WorkingProfile.name);
+            TrackingFilter::UpdateProfile(idx, s_WorkingProfile);
+        }
+        TrackingFilter::Save();
+        s_ShowProfileEditor = false;
+    }
+
+    if (s_EditingProfileIdx >= 0)
+    {
+        ImGui::SameLine();
+        if (ImGui::Button("Delete Profile"))
+        {
+            TrackingFilter::DeleteProfile(s_EditingProfileIdx);
+            TrackingFilter::Save();
+            s_ShowProfileEditor = false;
+        }
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel"))
+        s_ShowProfileEditor = false;
 
     ImGui::End();
 }

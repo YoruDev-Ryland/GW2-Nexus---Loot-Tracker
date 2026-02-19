@@ -45,6 +45,7 @@ set(SOURCES
     src/GW2Api.cpp
     src/LootSession.cpp
     src/SessionHistory.cpp
+    src/TrackingFilter.cpp
     src/UI.cpp
 
     # ImGui core — compiled inside our DLL, context shared with Nexus

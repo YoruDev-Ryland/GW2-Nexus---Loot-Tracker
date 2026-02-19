@@ -40,6 +40,25 @@ namespace LootSession
     // Returns a thread-safe copy of the current currency deltas.
     std::vector<CurrencyDelta> GetCurrencyDeltas();
 
+    // ── Known item/currency database (grows over playtime) ────────────────────
+    // Used by the profile editor to show what can be tracked.
+    struct KnownItem
+    {
+        int         id;
+        std::string name;
+        std::string type;
+        std::string rarity;
+        std::string textureId; // "LT_ITEM_{id}"
+    };
+    struct KnownCurrency
+    {
+        int         id;
+        std::string name;
+        std::string textureId; // "LT_CURRENCY_{id}"
+    };
+    std::vector<KnownItem>     GetKnownItems();
+    std::vector<KnownCurrency> GetKnownCurrencies();
+
     // How long the current session has been running (0 if not active).
     std::chrono::seconds ElapsedTime();
 

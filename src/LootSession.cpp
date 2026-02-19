@@ -9,6 +9,7 @@
 #include <mutex>
 #include <chrono>
 #include <ctime>
+#include <thread>
 #include <algorithm>
 
 using Clock   = std::chrono::steady_clock;
@@ -122,12 +123,70 @@ static void ResolveNewIds()
 
 void LootSession::Init()
 {
+    // ── Pre-populate info cache from saved history so the profile editor
+    // already has items/currencies to show even before the first poll ────────
+    {
+        std::lock_guard<std::mutex> lock(s_Mutex);
+        for (auto& sess : SessionHistory::GetAll())
+        {
+            for (auto& item : sess.items)
+            {
+                if (s_ItemInfo.find(item.id) == s_ItemInfo.end())
+                {
+                    GW2Api::ItemInfo info;
+                    info.id          = item.id;
+                    info.name        = item.name;
+                    info.rarity      = item.rarity;
+                    info.type        = item.type;
+                    info.description = item.description;
+                    info.vendorValue = item.vendorValue;
+                    s_ItemInfo[item.id] = info;
+                }
+            }
+            for (auto& c : sess.currencies)
+            {
+                if (s_CurrencyInfo.find(c.id) == s_CurrencyInfo.end())
+                {
+                    GW2Api::CurrencyInfo info;
+                    info.id   = c.id;
+                    info.name = c.name;
+                    s_CurrencyInfo[c.id] = info;
+                }
+            }
+        }
+    }
+
     // Wire the polling thread callback.
     GW2Api::StartPolling([](GW2Api::Snapshot snap)
     {
         LootSession::CheckAutoStart();
         LootSession::OnSnapshot(std::move(snap));
     });
+
+    // Pre-fetch all GW2 currencies in the background so the profile editor
+    // can show the full list immediately, not just wallet currencies.
+    std::thread([]()
+    {
+        auto all = GW2Api::FetchAllCurrencies();
+        if (all.empty()) return;
+
+        std::lock_guard<std::mutex> lock(s_Mutex);
+        for (auto& c : all)
+        {
+            if (s_CurrencyInfo.find(c.id) != s_CurrencyInfo.end()) continue;
+            s_CurrencyInfo[c.id] = c;
+
+            if (APIDefs && !c.iconUrl.empty())
+            {
+                std::string texId = "LT_CURRENCY_" + std::to_string(c.id);
+                const std::string host = "https://render.guildwars2.com";
+                std::string path = c.iconUrl;
+                if (path.rfind(host, 0) == 0) path = path.substr(host.size());
+                APIDefs->Textures_LoadFromURL(texId.c_str(),
+                    "https://render.guildwars2.com", path.c_str(), nullptr);
+            }
+        }
+    }).detach();
 }
 
 void LootSession::Start()
@@ -403,5 +462,39 @@ std::vector<LootSession::CurrencyDelta> LootSession::GetCurrencyDeltas()
     std::sort(result.begin(), result.end(),
         [](const CurrencyDelta& a, const CurrencyDelta& b){ return a.delta > b.delta; });
 
+    return result;
+}
+
+std::vector<LootSession::KnownItem> LootSession::GetKnownItems()
+{
+    std::lock_guard<std::mutex> lock(s_Mutex);
+    std::vector<KnownItem> result;
+    result.reserve(s_ItemInfo.size());
+    for (auto& [id, info] : s_ItemInfo)
+    {
+        KnownItem ki;
+        ki.id        = id;
+        ki.name      = info.name;
+        ki.type      = info.type;
+        ki.rarity    = info.rarity;
+        ki.textureId = "LT_ITEM_" + std::to_string(id);
+        result.push_back(std::move(ki));
+    }
+    return result;
+}
+
+std::vector<LootSession::KnownCurrency> LootSession::GetKnownCurrencies()
+{
+    std::lock_guard<std::mutex> lock(s_Mutex);
+    std::vector<KnownCurrency> result;
+    result.reserve(s_CurrencyInfo.size());
+    for (auto& [id, info] : s_CurrencyInfo)
+    {
+        KnownCurrency kc;
+        kc.id        = id;
+        kc.name      = info.name;
+        kc.textureId = "LT_CURRENCY_" + std::to_string(id);
+        result.push_back(std::move(kc));
+    }
     return result;
 }

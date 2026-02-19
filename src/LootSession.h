@@ -1,0 +1,60 @@
+#pragma once
+#include "GW2Api.h"
+#include <string>
+#include <vector>
+#include <unordered_map>
+#include <chrono>
+#include <mutex>
+
+namespace LootSession
+{
+    // ── Delta types shown in the UI ───────────────────────────────────────────
+
+    struct ItemDelta
+    {
+        int         id;
+        std::string name;
+        std::string rarity;   // "Fine", "Rare", "Exotic", etc.
+        std::string chatLink;
+        int         delta;    // positive = gained, negative = lost
+        // Texture identifier registered with Nexus Texture API.
+        // Empty until the icon has been loaded asynchronously.
+        std::string textureId;
+    };
+
+    struct CurrencyDelta
+    {
+        int         id;
+        std::string name;
+        int64_t     delta;
+        std::string textureId;
+    };
+
+    // ── Session state accessible to the UI ───────────────────────────────────
+
+    // Returns a thread-safe copy of the current item deltas.
+    std::vector<ItemDelta>     GetItemDeltas();
+    // Returns a thread-safe copy of the current currency deltas.
+    std::vector<CurrencyDelta> GetCurrencyDeltas();
+
+    // How long the current session has been running (0 if not active).
+    std::chrono::seconds ElapsedTime();
+
+    bool IsActive();
+
+    // ── Session lifecycle ─────────────────────────────────────────────────────
+
+    // Initialize: start polling & prime the baseline on first response.
+    void Init();
+
+    // Start a fresh session: resets all deltas and records new baseline.
+    void Start();
+
+    // Pause accumulation (polling keeps running so baseline stays warm).
+    void Stop();
+
+    // Called internally by GW2Api polling thread with a fresh snapshot.
+    void OnSnapshot(GW2Api::Snapshot snap);
+
+    void Shutdown();
+}

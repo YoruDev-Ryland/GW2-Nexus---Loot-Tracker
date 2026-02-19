@@ -1,0 +1,77 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+    tags:     [ 'v*.*.*' ]      # e.g. v1.2.3 — triggers a release
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:            # allow manual runs from the Actions tab
+
+jobs:
+  build:
+    name: Build DLL (MSVC / Windows)
+    runs-on: windows-latest
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── MSVC environment ──────────────────────────────────────────────────
+      - name: Setup MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      # ── CMake configure ───────────────────────────────────────────────────
+      - name: Configure CMake
+        run: |
+          cmake -B build -G "Ninja" `
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+            -DCMAKE_CXX_COMPILER=cl `
+            -DCMAKE_C_COMPILER=cl
+        shell: pwsh
+
+      # ── Build ─────────────────────────────────────────────────────────────
+      - name: Build
+        run: cmake --build build --config RelWithDebInfo --parallel
+        shell: pwsh
+
+      # ── Collect artifact ──────────────────────────────────────────────────
+      - name: Upload DLL artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LootTracker-${{ github.sha }}
+          path: |
+            build/LootTracker.dll
+            build/LootTracker.pdb
+          if-no-files-found: error
+
+  # ── Release job (only runs on version tags) ────────────────────────────────
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: LootTracker-${{ github.sha }}
+          path: dist
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/LootTracker.dll
+            dist/LootTracker.pdb
+          generate_release_notes: true
+          draft: false
+          prerelease: false

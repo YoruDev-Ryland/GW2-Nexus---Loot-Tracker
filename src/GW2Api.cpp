@@ -204,6 +204,43 @@ bool GW2Api::FetchSnapshot(const std::string& apiKey,
         }
     }
 
+    // ── Material storage ─────────────────────────────────────────────────────
+    // Merging material storage counts into inventory means that auto-deposit
+    // (items moving from bags to material storage) doesn't show as a negative
+    // delta — only true account-wide gains/losses are reflected.
+    {
+        std::string body = HttpGet(L"/v2/account/materials", apiKey);
+        if (!body.empty())
+        {
+            try
+            {
+                // Build a quick lookup index into out.inventory
+                std::unordered_map<int, size_t> idx;
+                idx.reserve(out.inventory.size());
+                for (size_t i = 0; i < out.inventory.size(); ++i)
+                    idx[out.inventory[i].id] = i;
+
+                json j = json::parse(body);
+                for (auto& entry : j)
+                {
+                    int id    = entry["id"].get<int>();
+                    int count = entry["count"].get<int>();
+                    if (count <= 0) continue;
+
+                    auto it = idx.find(id);
+                    if (it != idx.end())
+                        out.inventory[it->second].count += count;
+                    else
+                    {
+                        idx[id] = out.inventory.size();
+                        out.inventory.push_back({ id, count, -1 }); // slot -1 = material storage
+                    }
+                }
+            }
+            catch (...) { /* partial failure ok */ }
+        }
+    }
+
     return true;
 }
 

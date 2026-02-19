@@ -264,11 +264,14 @@ std::vector<GW2Api::ItemInfo> GW2Api::FetchItemDetails(const std::vector<int>& i
             for (auto& item : j)
             {
                 ItemInfo info;
-                info.id       = item.value("id",       0);
-                info.name     = item.value("name",     "");
-                info.rarity   = item.value("rarity",   "");
-                info.iconUrl  = item.value("icon",     "");
-                info.chatLink = item.value("chat_link","");
+                info.id          = item.value("id",           0);
+                info.name        = item.value("name",         "");
+                info.rarity      = item.value("rarity",       "");
+                info.iconUrl     = item.value("icon",         "");
+                info.chatLink    = item.value("chat_link",    "");
+                info.description = item.value("description",  "");
+                info.type        = item.value("type",         "");
+                info.vendorValue = item.value("vendor_value",  0);
                 result.push_back(std::move(info));
             }
         }

@@ -3,6 +3,7 @@
 #include "LootSession.h"
 #include "GW2Api.h"
 #include "UI.h"
+#include "SessionHistory.h"
 
 #include <imgui.h>
 #include <windows.h>
@@ -58,8 +59,12 @@ static void AddonLoad(AddonAPI_t* aApi)
     // Settings path requires APIDefs to be non-null (already set above).
     g_Settings.Load();
 
+    // ── Load session history from disk ────────────────────────────────────────
+    SessionHistory::Load();
+
     // ── Register render callbacks ─────────────────────────────────────────────
     aApi->GUI_Register(RT_Render,        UI::Render);
+    aApi->GUI_Register(RT_Render,        UI::RenderHistory);
     aApi->GUI_Register(RT_OptionsRender, UI::RenderOptions);
 
     // ── Register keybind to toggle the window ─────────────────────────────────
@@ -93,6 +98,7 @@ static void AddonUnload()
 
     // ── Deregister everything we registered ───────────────────────────────────
     APIDefs->GUI_Deregister(UI::Render);
+    APIDefs->GUI_Deregister(UI::RenderHistory);
     APIDefs->GUI_Deregister(UI::RenderOptions);
     APIDefs->InputBinds_Deregister("KB_LOOTTRACKER_TOGGLEVIS");
     APIDefs->QuickAccess_Remove("QA_LOOTTRACKER");

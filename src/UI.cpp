@@ -3,10 +3,12 @@
 #include "LootSession.h"
 #include "GW2Api.h"
 #include "Shared.h"
+#include "SessionHistory.h"
 
 #include <imgui.h>
 #include <string>
 #include <sstream>
+#include <algorithm>
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -65,6 +67,7 @@ static void* GetTexResource(const std::string& texId)
 
 // ── Main window ───────────────────────────────────────────────────────────────
 
+static bool s_ShowHistory = false;
 void UI::Render()
 {
     if (!g_Settings.ShowWindow) return;
@@ -235,12 +238,32 @@ void UI::Render()
                         ImGui::TextUnformatted(item.name.c_str());
                         ImGui::PopStyleColor();
 
-                        // Tooltip with chat link
-                        if (!item.chatLink.empty() &&
-                            ImGui::IsItemHovered())
+                        // Tooltip with item details
+                        if (ImGui::IsItemHovered())
                         {
                             ImGui::BeginTooltip();
-                            ImGui::TextUnformatted(item.chatLink.c_str());
+                            // Type + rarity header
+                            if (!item.type.empty() || !item.rarity.empty())
+                            {
+                                std::string hdr;
+                                if (!item.rarity.empty()) hdr = item.rarity;
+                                if (!item.rarity.empty() && !item.type.empty()) hdr += " ";
+                                if (!item.type.empty())   hdr += item.type;
+                                ImGui::TextDisabled("%s", hdr.c_str());
+                            }
+                            // Description
+                            if (!item.description.empty())
+                            {
+                                ImGui::PushTextWrapPos(ImGui::GetFontSize() * 16.0f);
+                                ImGui::TextUnformatted(item.description.c_str());
+                                ImGui::PopTextWrapPos();
+                            }
+                            // Vendor value
+                            if (item.vendorValue > 0)
+                            {
+                                ImGui::Separator();
+                                ImGui::Text("Vendor: %s", FormatGold(item.vendorValue).c_str());
+                            }
                             ImGui::EndTooltip();
                         }
                     }
@@ -293,17 +316,28 @@ void UI::RenderOptions()
 
     ImGui::Spacing();
 
-    // Poll interval slider
-    ImGui::TextUnformatted("Poll interval (seconds)");
-    if (ImGui::SliderInt("##PollInterval", &g_Settings.PollIntervalSec, 5, 120))
-        g_Settings.Save();
-
-    ImGui::Spacing();
-
     // Toggles
     if (ImGui::Checkbox("Track currency",      &g_Settings.TrackCurrency))   g_Settings.Save();
     if (ImGui::Checkbox("Track items",         &g_Settings.TrackItems))      g_Settings.Save();
     if (ImGui::Checkbox("Show zero deltas",    &g_Settings.ShowZeroDeltas))  g_Settings.Save();
+
+    ImGui::Spacing();
+
+    // Auto-start mode
+    ImGui::TextUnformatted("Auto-start new session");
+    static const char* s_AutoStartLabels[] = {
+        "Disabled",
+        "Every login",
+        "Every hour (UTC)",
+        "Daily reset (00:00 UTC)",
+    };
+    int current = static_cast<int>(g_Settings.AutoStart);
+    ImGui::SetNextItemWidth(-1.0f);
+    if (ImGui::Combo("##AutoStart", &current, s_AutoStartLabels, 4))
+    {
+        g_Settings.AutoStart = static_cast<AutoStartMode>(current);
+        g_Settings.Save();
+    }
 
     ImGui::Spacing();
     if (ImGui::Button("Open window"))
@@ -311,4 +345,112 @@ void UI::RenderOptions()
         g_Settings.ShowWindow = true;
         g_Settings.Save();
     }
+    ImGui::SameLine();
+    if (ImGui::Button("View History"))
+        s_ShowHistory = true;
+}
+
+// ── History window ─────────────────────────────────────────────────────────────
+
+void UI::RenderHistory()
+{
+    if (!s_ShowHistory) return;
+
+    ImGui::SetNextWindowSize(ImVec2(480, 360), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Loot Tracker \u2013 History", &s_ShowHistory,
+            ImGuiWindowFlags_NoCollapse))
+    {
+        ImGui::End();
+        return;
+    }
+
+    auto sessions = SessionHistory::GetAll();
+    if (sessions.empty())
+    {
+        ImGui::TextDisabled("No completed sessions yet.");
+        ImGui::End();
+        return;
+    }
+
+    for (size_t si = 0; si < sessions.size(); ++si)
+    {
+        auto& sess = sessions[si];
+        std::string header = sess.label + "  [" + sess.startTimestamp
+                             + " – " + sess.endTimestamp + "]";
+
+        if (ImGui::CollapsingHeader(header.c_str()))
+        {
+            // Currency sub-section
+            if (!sess.currencies.empty())
+            {
+                ImGui::TextDisabled("Currency");
+                for (auto& c : sess.currencies)
+                {
+                    ImVec4 col = c.delta >= 0
+                        ? ImVec4(0.4f, 1.0f, 0.4f, 1.0f)
+                        : ImVec4(1.0f, 0.4f, 0.4f, 1.0f);
+                    ImGui::PushStyleColor(ImGuiCol_Text, col);
+                    if (c.id == 1)
+                    {
+                        std::string sign = c.delta >= 0 ? "+" : "";
+                        ImGui::Text("  %s%s  %s",
+                            sign.c_str(),
+                            FormatGold(c.delta).c_str(),
+                            c.name.c_str());
+                    }
+                    else
+                        ImGui::Text("  %+lld  %s", (long long)c.delta, c.name.c_str());
+                    ImGui::PopStyleColor();
+                }
+            }
+
+            // Items sub-section
+            if (!sess.items.empty())
+            {
+                ImGui::Spacing();
+                ImGui::TextDisabled("Items");
+                if (ImGui::BeginTable(("LT_Hist_" + std::to_string(si)).c_str(), 3,
+                    ImGuiTableFlags_ScrollY |
+                    ImGuiTableFlags_RowBg   |
+                    ImGuiTableFlags_BordersInnerV,
+                    ImVec2(0, std::min((int)sess.items.size(), 10) * 22.0f + 22.0f)))
+                {
+                    ImGui::TableSetupScrollFreeze(0, 1);
+                    ImGui::TableSetupColumn("",      ImGuiTableColumnFlags_WidthFixed,  24.0f);
+                    ImGui::TableSetupColumn("Count", ImGuiTableColumnFlags_WidthFixed,  50.0f);
+                    ImGui::TableSetupColumn("Name",  ImGuiTableColumnFlags_WidthStretch);
+                    ImGui::TableHeadersRow();
+
+                    for (auto& item : sess.items)
+                    {
+                        if (!g_Settings.ShowZeroDeltas && item.delta == 0) continue;
+                        ImGui::TableNextRow();
+
+                        ImGui::TableSetColumnIndex(0);
+                        void* icon = GetTexResource(item.textureId);
+                        if (icon)
+                            ImGui::Image((ImTextureID)icon, ImVec2(20, 20));
+
+                        ImGui::TableSetColumnIndex(1);
+                        ImVec4 cc = item.delta >= 0
+                            ? ImVec4(0.4f, 1.0f, 0.4f, 1.0f)
+                            : ImVec4(1.0f, 0.4f, 0.4f, 1.0f);
+                        ImGui::PushStyleColor(ImGuiCol_Text, cc);
+                        ImGui::Text("%+d", item.delta);
+                        ImGui::PopStyleColor();
+
+                        ImGui::TableSetColumnIndex(2);
+                        ImU32 rc = RarityColor(item.rarity);
+                        ImGui::PushStyleColor(ImGuiCol_Text,
+                            ImGui::ColorConvertU32ToFloat4(rc));
+                        ImGui::TextUnformatted(item.name.c_str());
+                        ImGui::PopStyleColor();
+                    }
+                    ImGui::EndTable();
+                }
+            }
+        }
+    }
+
+    ImGui::End();
 }

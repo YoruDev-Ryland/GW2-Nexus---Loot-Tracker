@@ -237,7 +237,7 @@ void UI::Render()
 
                         // Tooltip with chat link
                         if (!item.chatLink.empty() &&
-                            ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                            ImGui::IsItemHovered())
                         {
                             ImGui::BeginTooltip();
                             ImGui::TextUnformatted(item.chatLink.c_str());

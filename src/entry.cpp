@@ -78,9 +78,11 @@ static void AddonLoad(AddonAPI_t* aApi)
         ProcessKeybind,
         "(null)"); // no default bind — user assigns in Nexus keybind settings
 
+    // ── Load the embedded PNG icon (resource ID 101 from resources.rc) ─────────
+    aApi->Textures_GetOrCreateFromResource("ICON_LOOTTRACKER",       101, Self);
+    aApi->Textures_GetOrCreateFromResource("ICON_LOOTTRACKER_HOVER", 101, Self);
+
     // ── Add a quick-access shortcut ────────────────────────────────────────────
-    // Texture identifiers below will resolve once Nexus loads the DLL icon.
-    // Add them here anyway — Nexus will wait for the texture to be available.
     aApi->QuickAccess_Add(
         "QA_LOOTTRACKER",
         "ICON_LOOTTRACKER",

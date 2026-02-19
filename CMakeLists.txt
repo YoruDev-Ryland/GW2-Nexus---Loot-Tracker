@@ -37,6 +37,14 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE)
 FetchContent_MakeAvailable(nlohmann_json)
 
+# ── Embed icon.png as a Win32 resource ───────────────────────────────────────
+# configure_file writes the absolute path into the generated .rc so that
+# rc.exe can find the PNG regardless of which directory it is invoked from.
+configure_file(
+    src/resources.rc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/resources.rc
+    @ONLY)
+
 # ── Sources ───────────────────────────────────────────────────────────────────
 set(SOURCES
     src/entry.cpp
@@ -47,6 +55,7 @@ set(SOURCES
     src/SessionHistory.cpp
     src/TrackingFilter.cpp
     src/UI.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/resources.rc
 
     # ImGui core — compiled inside our DLL, context shared with Nexus
     ${imgui_SOURCE_DIR}/imgui.cpp

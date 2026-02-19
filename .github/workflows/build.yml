@@ -42,8 +42,23 @@ jobs:
         run: cmake --build build --config RelWithDebInfo --parallel
         shell: pwsh
 
-      # ── Create GitHub Release (tag builds only) ───────────────────────────
-      # Files are attached directly here — no artifact storage consumed.
+      # ── Rolling "latest" release — every push to main ──────────────────────────
+      # Updates (or creates) a pre-release tagged "latest" so the DLL is always
+      # downloadable after a normal commit+push, without needing the release script.
+      - name: Update Latest Release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build
+          body: "Automated build from the latest commit on `main`.\nFor stable versioned releases see the tagged releases below."
+          files: |
+            build/LootTracker.dll
+            build/LootTracker.pdb
+          prerelease: true
+          draft: false
+
+      # ── Versioned release — only when ./release.sh vX.Y.Z pushes a tag ────────
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2

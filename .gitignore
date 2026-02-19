@@ -26,3 +26,6 @@ _deps/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local scripts — kept locally but not tracked in git
+release.sh

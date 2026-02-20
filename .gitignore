@@ -29,3 +29,4 @@ Thumbs.db
 
 # Local scripts — kept locally but not tracked in git
 release.sh
+NEXUS_ADDON_GUIDE.md

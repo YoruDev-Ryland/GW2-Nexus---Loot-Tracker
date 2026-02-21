@@ -19,6 +19,8 @@ using Seconds = std::chrono::seconds;
 // ── Internal state ─────────────────────────────────────────────────────────────
 
 static std::mutex s_Mutex;
+static std::atomic<bool> s_Stopping{false}; // set in Shutdown() before joining threads
+static std::thread s_InitThread;
 
 static bool  s_Active    = false;
 static bool  s_HasBase   = false; // true once the first snapshot has been received
@@ -166,7 +168,7 @@ void LootSession::Init()
 
     // Pre-fetch all GW2 currencies in the background so the profile editor
     // can show the full list immediately, not just wallet currencies.
-    std::thread([]()
+    s_InitThread = std::thread([]()
     {
         // ── Resolve item IDs saved in profiles that aren't in session history ─
         // Ensures items added via by-ID show their name/icon after a restart,
@@ -200,7 +202,7 @@ void LootSession::Init()
             if (s_CurrencyInfo.find(c.id) != s_CurrencyInfo.end()) continue;
             s_CurrencyInfo[c.id] = c;
 
-            if (APIDefs && !c.iconUrl.empty())
+            if (!s_Stopping && APIDefs && !c.iconUrl.empty())
             {
                 std::string texId = "LT_CURRENCY_" + std::to_string(c.id);
                 const std::string host = "https://render.guildwars2.com";
@@ -210,7 +212,7 @@ void LootSession::Init()
                     "https://render.guildwars2.com", path.c_str(), nullptr);
             }
         }
-    }).detach();
+    });
 }
 
 void LootSession::Start()
@@ -339,6 +341,10 @@ void LootSession::OnSnapshot(GW2Api::Snapshot snap)
 
 void LootSession::Shutdown()
 {
+    // Signal the init thread to abort any APIDefs calls before we join it.
+    s_Stopping = true;
+    // Wait for the init (pre-fetch) thread to finish before tearing down.
+    if (s_InitThread.joinable()) s_InitThread.join();
     GW2Api::StopPolling();
     std::lock_guard<std::mutex> lock(s_Mutex);
     s_Active       = false;

@@ -78,9 +78,9 @@ static void AddonLoad(AddonAPI_t* aApi)
         ProcessKeybind,
         "(null)"); // no default bind — user assigns in Nexus keybind settings
 
-    // ── Load the embedded PNG icon (resource ID 101 from resources.rc) ─────────
-    aApi->Textures_GetOrCreateFromResource("ICON_LOOTTRACKER",       101, Self);
-    aApi->Textures_GetOrCreateFromResource("ICON_LOOTTRACKER_HOVER", 101, Self);
+    // ── Load the embedded PNG icon (resource ID 102 from resources.rc) ─────────
+    aApi->Textures_GetOrCreateFromResource("ICON_LOOTTRACKER",       102, Self);
+    aApi->Textures_GetOrCreateFromResource("ICON_LOOTTRACKER_HOVER", 102, Self);
 
     // ── Add a quick-access shortcut ────────────────────────────────────────────
     aApi->QuickAccess_Add(

@@ -130,7 +130,7 @@ extern "C" __declspec(dllexport) AddonDefinition_t* GetAddonDef()
     s_AddonDef.Signature   = 0xC0DE4C54; // Unique ID (unofficial — not on Raidcore)
     s_AddonDef.APIVersion  = NEXUS_API_VERSION;
     s_AddonDef.Name        = "Loot Tracker";
-    s_AddonDef.Version     = { 1, 0, 0, 0 };
+    s_AddonDef.Version     = { 1, 0, 0, 1 };
     s_AddonDef.Author      = "YoruDev-Ryland";
     s_AddonDef.Description = "Tracks items and currency gained per session, "
                              "like Blish HUD Session Tracker.";
